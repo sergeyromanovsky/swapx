@@ -1,142 +1,161 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
-import { parseUnits, formatUnits } from "viem";
-import { Actions, V4Planner } from "@uniswap/v4-sdk";
-import { CommandType, RoutePlanner } from "@uniswap/universal-router-sdk";
-import {
-  Token,
-  getTokenById,
-  getV4TokenAddress,
-  getFeeTier,
-  sortCurrencies,
-  isZeroForOne,
-  UNISWAP_V4,
-  TICK_SPACING,
-  UNIVERSAL_ROUTER_ABI,
-  QUOTER_V4_ABI,
-} from "@/lib/tokens";
+import { parseUnits, formatUnits, maxUint256, type Address } from "viem";
+import { getFeeTier, ERC20_ABI, type Token } from "@/lib/tokens";
+import { useAppState } from "@/providers/AppStateProvider";
 
 // =============================================================================
-// TYPES
+// UNISWAP V3 CONTRACTS (Mainnet)
 // =============================================================================
 
-export interface SwapState {
-  fromToken: Token | null;
-  toToken: Token | null;
-  fromAmount: string;
-  toAmount: string;
-  slippage: number;
-  isLoading: boolean;
-  error: string | null;
-}
+const UNISWAP_V3 = {
+  SWAP_ROUTER_02: "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45" as Address,
+  QUOTER_V2: "0x61fFE014bA17989E743c5F6cB21bF9697530B21e" as Address,
+  WETH: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2" as Address,
+} as const;
 
-export interface SwapDetails {
-  outputAmount: number;
-  rate: number;
-  minimumReceived: number;
-  priceImpact: number;
-  fee: number;
-  gas: { eth: number; usd: number };
-}
+// =============================================================================
+// ABIs
+// =============================================================================
 
-export interface SwapTransaction {
-  id: string;
-  fromToken: Token;
-  toToken: Token;
-  fromAmount: number;
-  toAmount: number;
-  timestamp: Date;
-  status: "pending" | "completed" | "failed";
-  txHash?: string;
+const QUOTER_V2_ABI = [
+  {
+    inputs: [
+      {
+        components: [
+          { name: "tokenIn", type: "address" },
+          { name: "tokenOut", type: "address" },
+          { name: "amountIn", type: "uint256" },
+          { name: "fee", type: "uint24" },
+          { name: "sqrtPriceLimitX96", type: "uint160" },
+        ],
+        name: "params",
+        type: "tuple",
+      },
+    ],
+    name: "quoteExactInputSingle",
+    outputs: [
+      { name: "amountOut", type: "uint256" },
+      { name: "sqrtPriceX96After", type: "uint160" },
+      { name: "initializedTicksCrossed", type: "uint32" },
+      { name: "gasEstimate", type: "uint256" },
+    ],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+] as const;
+
+const SWAP_ROUTER_ABI = [
+  {
+    inputs: [
+      {
+        components: [
+          { name: "tokenIn", type: "address" },
+          { name: "tokenOut", type: "address" },
+          { name: "fee", type: "uint24" },
+          { name: "recipient", type: "address" },
+          { name: "amountIn", type: "uint256" },
+          { name: "amountOutMinimum", type: "uint256" },
+          { name: "sqrtPriceLimitX96", type: "uint160" },
+        ],
+        name: "params",
+        type: "tuple",
+      },
+    ],
+    name: "exactInputSingle",
+    outputs: [{ name: "amountOut", type: "uint256" }],
+    stateMutability: "payable",
+    type: "function",
+  },
+] as const;
+
+// =============================================================================
+// HELPERS
+// =============================================================================
+
+function getTokenAddress(token: Token): Address {
+  // For native ETH, use WETH address in V3
+  return token.address ?? UNISWAP_V3.WETH;
 }
 
 // =============================================================================
 // HOOK
 // =============================================================================
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function useSwap(_prices?: any) {
-  const { isConnected, address } = useAccount();
+export function useSwap() {
+  const { address, isConnected } = useAccount();
   const publicClient = usePublicClient();
   const { data: walletClient } = useWalletClient();
 
-  const [state, setState] = useState<SwapState>({
-    fromToken: getTokenById("eth") || null,
-    toToken: getTokenById("usdc") || null,
-    fromAmount: "",
-    toAmount: "",
-    slippage: 0.5,
-    isLoading: false,
-    error: null,
-  });
+  const {
+    form,
+    fromToken,
+    toToken,
+    isLoading,
+    setIsLoading,
+    setError,
+    needsApproval,
+    setNeedsApproval,
+    resetForm,
+  } = useAppState();
 
-  const [swapDetails, setSwapDetails] = useState<SwapDetails | null>(null);
-  const [transactions, setTransactions] = useState<SwapTransaction[]>([]);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Watch form values
+  const fromAmount = form.watch("fromAmount");
+  const slippage = form.watch("slippage");
+
   // ---------------------------------------------------------------------------
-  // Get Quote from Uniswap V4 Quoter
+  // Get Quote from Uniswap V3 QuoterV2
   // ---------------------------------------------------------------------------
   const getQuote = useCallback(
     async (amountIn: string): Promise<bigint | null> => {
-      if (!publicClient || !state.fromToken || !state.toToken) return null;
+      if (!publicClient || !fromToken || !toToken) return null;
 
-      const tokenIn = getV4TokenAddress(state.fromToken);
-      const tokenOut = getV4TokenAddress(state.toToken);
-      const [currency0, currency1] = sortCurrencies(tokenIn, tokenOut);
-      const zeroForOne = isZeroForOne(tokenIn, tokenOut);
-
-      const fee = getFeeTier(state.fromToken, state.toToken);
-      const tickSpacing = TICK_SPACING[fee as keyof typeof TICK_SPACING];
+      const tokenIn = getTokenAddress(fromToken);
+      const tokenOut = getTokenAddress(toToken);
+      const fee = getFeeTier(fromToken, toToken);
 
       try {
-        const exactAmount = parseUnits(amountIn, state.fromToken.decimals);
+        const exactAmount = parseUnits(amountIn, fromToken.decimals);
 
-        console.log("📊 V4 Quote request:", {
-          currency0,
-          currency1,
+        console.log("📊 V3 Quote request:", {
+          tokenIn,
+          tokenOut,
           fee,
-          tickSpacing,
-          zeroForOne,
-          exactAmount: exactAmount.toString(),
+          amountIn: exactAmount.toString(),
         });
 
         const result = await publicClient.simulateContract({
-          address: UNISWAP_V4.QUOTER,
-          abi: QUOTER_V4_ABI,
+          address: UNISWAP_V3.QUOTER_V2,
+          abi: QUOTER_V2_ABI,
           functionName: "quoteExactInputSingle",
           args: [
             {
-              poolKey: {
-                currency0,
-                currency1,
-                fee,
-                tickSpacing,
-                hooks: UNISWAP_V4.NATIVE_ETH,
-              },
-              zeroForOne,
-              exactAmount,
-              hookData: "0x",
+              tokenIn,
+              tokenOut,
+              amountIn: exactAmount,
+              fee,
+              sqrtPriceLimitX96: 0n,
             },
           ],
         });
 
-        const [amountOut, gasEstimate] = result.result as [bigint, bigint];
+        const [amountOut] = result.result as [bigint, bigint, number, bigint];
 
-        console.log("✅ V4 Quote result:", {
+        console.log("✅ V3 Quote result:", {
           amountOut: amountOut.toString(),
-          gasEstimate: gasEstimate.toString(),
         });
 
         return amountOut;
       } catch (err) {
-        console.error("❌ V4 Quote error:", err);
+        console.error("❌ V3 Quote error:", err);
         return null;
       }
     },
-    [publicClient, state.fromToken, state.toToken]
+    [publicClient, fromToken, toToken]
   );
 
   // ---------------------------------------------------------------------------
@@ -145,51 +164,33 @@ export function useSwap(_prices?: any) {
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
-    if (!state.fromAmount || !state.fromToken || !state.toToken) {
-      setSwapDetails(null);
-      setState((prev) => ({ ...prev, toAmount: "" }));
+    if (!fromAmount || !fromToken || !toToken) {
+      form.setValue("toAmount", "");
       return;
     }
 
-    const amount = parseFloat(state.fromAmount);
+    const amount = parseFloat(fromAmount);
     if (isNaN(amount) || amount <= 0) {
-      setSwapDetails(null);
-      setState((prev) => ({ ...prev, toAmount: "" }));
+      form.setValue("toAmount", "");
       return;
     }
 
     debounceRef.current = setTimeout(async () => {
-      setState((prev) => ({ ...prev, isLoading: true, error: null }));
+      setIsLoading(true);
+      setError(null);
 
-      const amountOut = await getQuote(state.fromAmount);
+      const amountOut = await getQuote(fromAmount);
 
       if (amountOut) {
         const outputAmount = parseFloat(
-          formatUnits(amountOut, state.toToken!.decimals)
+          formatUnits(amountOut, toToken.decimals)
         );
-        const rate = outputAmount / amount;
-        const minimumReceived = outputAmount * (1 - state.slippage / 100);
 
-        setSwapDetails({
-          outputAmount,
-          rate,
-          minimumReceived,
-          priceImpact: 0.05,
-          fee: 0.0005 * amount,
-          gas: { eth: 0.002, usd: 7 },
-        });
-
-        setState((prev) => ({
-          ...prev,
-          toAmount: outputAmount.toFixed(6),
-          isLoading: false,
-        }));
+        form.setValue("toAmount", outputAmount.toFixed(6));
+        setIsLoading(false);
       } else {
-        setState((prev) => ({
-          ...prev,
-          isLoading: false,
-          error: "Failed to get quote - pool may not exist",
-        }));
+        setIsLoading(false);
+        setError("Failed to get quote - pool may not exist");
       }
     }, 500);
 
@@ -197,232 +198,212 @@ export function useSwap(_prices?: any) {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [
-    state.fromAmount,
-    state.fromToken,
-    state.toToken,
-    state.slippage,
+    fromAmount,
+    fromToken,
+    toToken,
+    slippage,
     getQuote,
+    form,
+    setIsLoading,
+    setError,
   ]);
 
   // ---------------------------------------------------------------------------
-  // Execute Swap via Universal Router V4 (using official SDK)
+  // Check and request ERC20 approval for SwapRouter02
   // ---------------------------------------------------------------------------
-  const executeSwap = useCallback(async () => {
-    if (!walletClient || !publicClient || !address || !swapDetails) {
-      setState((prev) => ({ ...prev, error: "Wallet not connected" }));
+  const checkAndApprove = useCallback(async (): Promise<boolean> => {
+    if (!walletClient || !publicClient || !address || !fromToken) {
       return false;
     }
 
-    if (!state.fromToken || !state.toToken) {
-      setState((prev) => ({ ...prev, error: "Select tokens" }));
-      return false;
+    // Native ETH doesn't need approval
+    if (fromToken.address === null) {
+      return true;
     }
 
-    setState((prev) => ({ ...prev, isLoading: true, error: null }));
-
-    const tx: SwapTransaction = {
-      id: crypto.randomUUID(),
-      fromToken: state.fromToken,
-      toToken: state.toToken,
-      fromAmount: parseFloat(state.fromAmount),
-      toAmount: swapDetails.outputAmount,
-      timestamp: new Date(),
-      status: "pending",
-    };
-
-    setTransactions((prev) => [tx, ...prev]);
+    const currentFromAmount = form.getValues("fromAmount");
+    const amountIn = parseUnits(currentFromAmount, fromToken.decimals);
 
     try {
-      const tokenIn = getV4TokenAddress(state.fromToken);
-      const tokenOut = getV4TokenAddress(state.toToken);
-      const [currency0, currency1] = sortCurrencies(tokenIn, tokenOut);
-      const zeroForOne = isZeroForOne(tokenIn, tokenOut);
-      const isNativeETH = state.fromToken.address === null;
-
-      const fee = getFeeTier(state.fromToken, state.toToken);
-      const tickSpacing = TICK_SPACING[fee as keyof typeof TICK_SPACING];
-
-      const amountIn = parseUnits(state.fromAmount, state.fromToken.decimals);
-      const amountOutMin = parseUnits(
-        swapDetails.minimumReceived.toFixed(state.toToken.decimals),
-        state.toToken.decimals
-      );
-
-      console.log("🚀 V4 Swap executing with SDK:", {
-        currency0,
-        currency1,
-        zeroForOne,
-        amountIn: amountIn.toString(),
-        amountOutMin: amountOutMin.toString(),
-        isNativeETH,
+      // Check current allowance for SwapRouter02
+      const allowance = await publicClient.readContract({
+        address: fromToken.address,
+        abi: ERC20_ABI,
+        functionName: "allowance",
+        args: [address, UNISWAP_V3.SWAP_ROUTER_02],
       });
 
-      // Build swap config for SDK
-      const swapConfig = {
-        poolKey: {
-          currency0,
-          currency1,
-          fee,
-          tickSpacing,
-          hooks: UNISWAP_V4.NATIVE_ETH,
-        },
-        zeroForOne,
-        amountIn: amountIn.toString(),
-        amountOutMinimum: amountOutMin.toString(),
-        hookData: "0x",
-      };
+      console.log("📋 Current allowance:", allowance.toString());
 
-      // Use V4Planner from @uniswap/v4-sdk
-      const v4Planner = new V4Planner();
+      if (allowance >= amountIn) {
+        return true;
+      }
 
-      // Add actions
-      v4Planner.addAction(Actions.SWAP_EXACT_IN_SINGLE, [swapConfig]);
-      v4Planner.addAction(Actions.SETTLE_ALL, [
-        zeroForOne ? currency0 : currency1,
-        amountIn.toString(),
-      ]);
-      v4Planner.addAction(Actions.TAKE_ALL, [
-        zeroForOne ? currency1 : currency0,
-        amountOutMin.toString(),
-      ]);
+      console.log("🔓 Requesting approval for SwapRouter02...");
 
-      // Finalize V4 actions
-      const v4Actions = v4Planner.finalize();
-
-      // Use RoutePlanner from @uniswap/universal-router-sdk
-      const routePlanner = new RoutePlanner();
-      routePlanner.addCommand(CommandType.V4_SWAP, [
-        v4Planner.actions,
-        v4Planner.params,
-      ]);
-
-      // Deadline: 1 hour from now
-      const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
-
-      console.log("📦 Encoded commands:", {
-        commands: routePlanner.commands,
-        inputs: [v4Actions],
+      // Request unlimited approval for SwapRouter02
+      const approveHash = await walletClient.writeContract({
+        address: fromToken.address,
+        abi: ERC20_ABI,
+        functionName: "approve",
+        args: [UNISWAP_V3.SWAP_ROUTER_02, maxUint256],
       });
 
-      const hash = await walletClient.writeContract({
-        address: UNISWAP_V4.UNIVERSAL_ROUTER,
-        abi: UNIVERSAL_ROUTER_ABI,
-        functionName: "execute",
-        args: [
-          routePlanner.commands as `0x${string}`,
-          [v4Actions] as `0x${string}`[],
-          deadline,
-        ],
-        value: isNativeETH ? amountIn : 0n,
+      console.log("📝 Approval tx:", approveHash);
+
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash: approveHash,
       });
-
-      console.log("📝 V4 Transaction sent:", hash);
-
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
-      console.log("✅ V4 Transaction confirmed:", receipt.status);
-
-      setTransactions((prev) =>
-        prev.map((t) =>
-          t.id === tx.id
-            ? {
-                ...t,
-                status: receipt.status === "success" ? "completed" : "failed",
-                txHash: hash,
-              }
-            : t
-        )
-      );
 
       if (receipt.status === "success") {
-        setState((prev) => ({
-          ...prev,
-          fromAmount: "",
-          toAmount: "",
-          isLoading: false,
-        }));
-        setSwapDetails(null);
+        console.log("✅ Approval confirmed");
         return true;
       }
 
       return false;
     } catch (err) {
-      console.error("❌ V4 Swap error:", err);
+      console.error("❌ Approval error:", err);
+      return false;
+    }
+  }, [walletClient, publicClient, address, fromToken, form]);
 
-      setTransactions((prev) =>
-        prev.map((t) => (t.id === tx.id ? { ...t, status: "failed" } : t))
+  // ---------------------------------------------------------------------------
+  // Execute Swap via Uniswap V3 SwapRouter02
+  // ---------------------------------------------------------------------------
+  const executeSwap = useCallback(async () => {
+    if (!walletClient || !publicClient || !address) {
+      setError("Wallet not connected");
+      return false;
+    }
+
+    if (!fromToken || !toToken) {
+      setError("Select tokens");
+      return false;
+    }
+
+    const currentFromAmount = form.getValues("fromAmount");
+    const currentToAmount = form.getValues("toAmount");
+    const currentSlippage = form.getValues("slippage");
+
+    if (!currentToAmount || parseFloat(currentToAmount) <= 0) {
+      setError("No quote available");
+      return false;
+    }
+
+    const outputAmount = parseFloat(currentToAmount);
+    const minimumReceived = outputAmount * (1 - currentSlippage / 100);
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // First check/request approval for ERC20 tokens
+      if (fromToken.address !== null) {
+        const approved = await checkAndApprove();
+        if (!approved) {
+          setError("Approval failed or rejected");
+          setIsLoading(false);
+          return false;
+        }
+      }
+
+      const tokenIn = getTokenAddress(fromToken);
+      const tokenOut = getTokenAddress(toToken);
+      const isNativeETH = fromToken.address === null;
+      const fee = getFeeTier(fromToken, toToken);
+
+      const amountIn = parseUnits(currentFromAmount, fromToken.decimals);
+      const amountOutMin = parseUnits(
+        minimumReceived.toFixed(toToken.decimals),
+        toToken.decimals
       );
+
+      console.log("🚀 V3 Swap executing:", {
+        tokenIn,
+        tokenOut,
+        fee,
+        amountIn: amountIn.toString(),
+        amountOutMin: amountOutMin.toString(),
+        isNativeETH,
+      });
+
+      const hash = await walletClient.writeContract({
+        address: UNISWAP_V3.SWAP_ROUTER_02,
+        abi: SWAP_ROUTER_ABI,
+        functionName: "exactInputSingle",
+        args: [
+          {
+            tokenIn,
+            tokenOut,
+            fee,
+            recipient: address,
+            amountIn,
+            amountOutMinimum: amountOutMin,
+            sqrtPriceLimitX96: 0n,
+          },
+        ],
+        value: isNativeETH ? amountIn : 0n,
+      });
+
+      console.log("📝 Transaction sent:", hash);
+
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      console.log("✅ Transaction confirmed:", receipt.status);
+
+      if (receipt.status === "success") {
+        resetForm();
+        setIsLoading(false);
+        return true;
+      }
+
+      setIsLoading(false);
+      return false;
+    } catch (err) {
+      console.error("❌ Swap error:", err);
 
       const errorMsg =
         err instanceof Error
           ? err.message.includes("user rejected")
             ? "Transaction rejected"
+            : err.message.includes("insufficient")
+            ? "Insufficient balance or liquidity"
             : err.message.slice(0, 100)
           : "Swap failed";
 
-      setState((prev) => ({ ...prev, error: errorMsg, isLoading: false }));
+      setError(errorMsg);
+      setIsLoading(false);
       return false;
     }
-  }, [walletClient, publicClient, address, state, swapDetails]);
+  }, [
+    walletClient,
+    publicClient,
+    address,
+    fromToken,
+    toToken,
+    form,
+    checkAndApprove,
+    resetForm,
+    setIsLoading,
+    setError,
+  ]);
 
-  // ---------------------------------------------------------------------------
-  // Token Setters
-  // ---------------------------------------------------------------------------
-  const setFromToken = useCallback((token: Token | null) => {
-    setState((prev) => {
-      if (token && prev.toToken?.id === token.id) {
-        return { ...prev, fromToken: token, toToken: prev.fromToken };
-      }
-      return { ...prev, fromToken: token, toAmount: "" };
-    });
-    setSwapDetails(null);
-  }, []);
+  // Handle approval request from UI
+  const handleApprove = useCallback(async () => {
+    setIsLoading(true);
+    const approved = await checkAndApprove();
+    if (approved) {
+      setNeedsApproval(false);
+    }
+    setIsLoading(false);
+    return approved;
+  }, [checkAndApprove, setNeedsApproval, setIsLoading]);
 
-  const setToToken = useCallback((token: Token | null) => {
-    setState((prev) => {
-      if (token && prev.fromToken?.id === token.id) {
-        return { ...prev, toToken: token, fromToken: prev.toToken };
-      }
-      return { ...prev, toToken: token, toAmount: "" };
-    });
-    setSwapDetails(null);
-  }, []);
-
-  const setFromAmount = useCallback((amount: string) => {
-    setState((prev) => ({ ...prev, fromAmount: amount }));
-  }, []);
-
-  const setSlippage = useCallback((slippage: number) => {
-    setState((prev) => ({ ...prev, slippage }));
-  }, []);
-
-  const swapTokens = useCallback(() => {
-    setState((prev) => ({
-      ...prev,
-      fromToken: prev.toToken,
-      toToken: prev.fromToken,
-      fromAmount: prev.toAmount,
-      toAmount: prev.fromAmount,
-    }));
-    setSwapDetails(null);
-  }, []);
-
-  // Stub for compatibility (ETH doesn't need approval)
-  const handleApprove = useCallback(async () => true, []);
-
-  // ---------------------------------------------------------------------------
-  // Return
-  // ---------------------------------------------------------------------------
   return {
-    state: { ...state, needsApproval: false, swapError: state.error },
-    swapDetails,
-    transactions,
-    setFromToken,
-    setToToken,
-    setFromAmount,
-    setSlippage,
-    swapTokens,
+    getQuote,
     executeSwap,
     handleApprove,
     isConnected,
+    isLoading,
+    needsApproval,
   };
 }

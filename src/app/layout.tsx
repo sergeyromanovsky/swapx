@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import { Space_Grotesk, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AppKitProvider } from "@/providers/AppkitProvider";
+import { AppStateProvider } from "@/providers/AppStateProvider";
+import { Header } from "@/components/Header";
+import Footer from "@/components/Footer";
 
 const spaceGrotesk = Space_Grotesk({
   variable: "--font-geist-sans",
@@ -33,7 +36,13 @@ export default function RootLayout({
       <body
         className={`${spaceGrotesk.variable} ${jetbrainsMono.variable} font-sans antialiased`}
       >
-        <AppKitProvider>{children}</AppKitProvider>
+        <AppKitProvider>
+          <AppStateProvider>
+            <Header />
+            {children}
+            <Footer />
+          </AppStateProvider>
+        </AppKitProvider>
       </body>
     </html>
   );

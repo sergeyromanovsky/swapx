@@ -112,19 +112,9 @@ export function getTokenByAddress(address: Address): Token | undefined {
 }
 
 // =============================================================================
-// UNISWAP V4 CONFIG (Mainnet addresses, work on Anvil fork)
+// UNISWAP V3 FEE TIERS
 // =============================================================================
 
-export const UNISWAP_V4 = {
-  UNIVERSAL_ROUTER: "0x66a9893cc07d91d95644aedd05d03f95e1dba8af" as Address,
-  QUOTER: "0x52f0e24d1c21c8a0cb1e5a5dd6198556bd9e1203" as Address,
-  POOL_MANAGER: "0x000000000004444c5dc75cb358380d2e3de08a90" as Address,
-  PERMIT2: "0x000000000022d473030f116ddee9f6b43ac78ba3" as Address,
-  // For native ETH, V4 uses address(0)
-  NATIVE_ETH: "0x0000000000000000000000000000000000000000" as Address,
-} as const;
-
-// Pool fee tiers (in hundredths of a bip, same as V3)
 export const FEE_TIERS = {
   LOWEST: 100,   // 0.01%
   LOW: 500,      // 0.05% - best for ETH/stables
@@ -132,69 +122,10 @@ export const FEE_TIERS = {
   HIGH: 10000,   // 1.00%
 } as const;
 
-// Tick spacing for each fee tier
-export const TICK_SPACING = {
-  [FEE_TIERS.LOWEST]: 1,
-  [FEE_TIERS.LOW]: 10,
-  [FEE_TIERS.MEDIUM]: 60,
-  [FEE_TIERS.HIGH]: 200,
-} as const;
-
 // =============================================================================
-// UNISWAP V4 ABIs
+// ERC20 ABI
 // =============================================================================
 
-// Universal Router - execute function
-export const UNIVERSAL_ROUTER_ABI = [
-  {
-    inputs: [
-      { name: "commands", type: "bytes" },
-      { name: "inputs", type: "bytes[]" },
-      { name: "deadline", type: "uint256" },
-    ],
-    name: "execute",
-    outputs: [],
-    stateMutability: "payable",
-    type: "function",
-  },
-] as const;
-
-// Quoter V4 - quoteExactInputSingle
-export const QUOTER_V4_ABI = [
-  {
-    inputs: [
-      {
-        components: [
-          {
-            components: [
-              { name: "currency0", type: "address" },
-              { name: "currency1", type: "address" },
-              { name: "fee", type: "uint24" },
-              { name: "tickSpacing", type: "int24" },
-              { name: "hooks", type: "address" },
-            ],
-            name: "poolKey",
-            type: "tuple",
-          },
-          { name: "zeroForOne", type: "bool" },
-          { name: "exactAmount", type: "uint128" },
-          { name: "hookData", type: "bytes" },
-        ],
-        name: "params",
-        type: "tuple",
-      },
-    ],
-    name: "quoteExactInputSingle",
-    outputs: [
-      { name: "amountOut", type: "uint256" },
-      { name: "gasEstimate", type: "uint256" },
-    ],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-] as const;
-
-// ERC20 ABI for balances and approvals
 export const ERC20_ABI = [
   {
     inputs: [{ name: "account", type: "address" }],
@@ -226,13 +157,13 @@ export const ERC20_ABI = [
 ] as const;
 
 // =============================================================================
-// V4 HELPERS
+// FEE TIER HELPER
 // =============================================================================
 
 const STABLECOINS = ["usdc", "usdt", "dai"];
 
 /**
- * Get the best fee tier for a token pair
+ * Get the best fee tier for a token pair (V3)
  */
 export function getFeeTier(tokenA: Token, tokenB: Token): number {
   const aIsStable = STABLECOINS.includes(tokenA.id);
@@ -248,25 +179,4 @@ export function getFeeTier(tokenA: Token, tokenB: Token): number {
 
   // All other pairs (volatile/volatile) → 0.30%
   return FEE_TIERS.MEDIUM;
-}
-
-/**
- * Get token address for V4 (address(0) for native ETH)
- */
-export function getV4TokenAddress(token: Token): Address {
-  return token.address ?? UNISWAP_V4.NATIVE_ETH;
-}
-
-/**
- * Sort addresses for pool key (currency0 < currency1)
- */
-export function sortCurrencies(a: Address, b: Address): [Address, Address] {
-  return a.toLowerCase() < b.toLowerCase() ? [a, b] : [b, a];
-}
-
-/**
- * Check if swap is zeroForOne (tokenIn is currency0)
- */
-export function isZeroForOne(tokenIn: Address, tokenOut: Address): boolean {
-  return tokenIn.toLowerCase() < tokenOut.toLowerCase();
 }
