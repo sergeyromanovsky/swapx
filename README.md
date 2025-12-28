@@ -1,36 +1,123 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SwapX — Decentralized Token Swap
+
+A modern DEX aggregator interface built with Next.js 15, integrating directly with Uniswap V3 smart contracts on Ethereum mainnet.
+
+![SwapX Preview](https://via.placeholder.com/800x450?text=SwapX+Preview)
+
+## Features
+
+- **Direct Uniswap V3 Integration** — Swaps execute directly on-chain via SwapRouter02
+- **Real-time Quotes** — Live price quotes from QuoterV2 contract
+- **Smart Fee Tier Selection** — Automatically selects optimal fee tier (0.01%, 0.05%, 0.3%)
+- **ERC-20 Approvals** — Handles token approvals with max approval pattern
+- **Live Price Feed** — Real-time prices from CoinGecko API
+- **Wallet Connect** — WalletConnect v2 via Reown AppKit
+
+## Tech Stack
+
+| Category | Technology |
+|----------|------------|
+| Framework | Next.js 15 (App Router) |
+| Blockchain | viem, wagmi v2 |
+| Wallet | Reown AppKit (WalletConnect v2) |
+| State | Zustand, TanStack Query |
+| Styling | Tailwind CSS 4, Radix UI |
+| Language | TypeScript (strict mode) |
+
+## Architecture
+
+```
+src/
+├── app/                    # Next.js App Router
+├── components/
+│   ├── ui/                 # Shadcn/ui primitives
+│   ├── layout/             # Header, Footer
+│   └── home/               # Landing page sections
+├── features/
+│   └── swap/
+│       ├── api/            # Contract interactions (pure functions)
+│       ├── hooks/          # React hooks (useQuote, useBalance, etc.)
+│       ├── model/          # Store, types, token configs
+│       └── ui/             # Swap form components
+├── lib/                    # Utilities
+└── providers/              # AppKit provider setup
+```
+
+## Smart Contract Integration
+
+| Contract | Address | Purpose |
+|----------|---------|---------|
+| SwapRouter02 | `0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45` | Execute swaps |
+| QuoterV2 | `0x61fFE014bA17989E743c5F6cB21bF9697530B21e` | Get quotes |
+| WETH | `0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2` | Wrap ETH |
 
 ## Getting Started
 
-First, run the development server:
-
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+# Install dependencies
+pnpm install
+
+# Set up environment
+cp .env.example .env.local
+# Add your WalletConnect Project ID
+
+# Run development server
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) to see the app.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Testing
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+# Run tests
+pnpm test
 
-## Learn More
+# Run tests once
+pnpm test:run
 
-To learn more about Next.js, take a look at the following resources:
+# Run with coverage
+pnpm test:coverage
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+**33 unit tests** covering:
+- Utility functions (`formatTokenAmount`, `shortenAddress`, etc.)
+- Token configuration and fee tier logic
+- Button state machine
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Environment Variables
 
-## Deploy on Vercel
+```env
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_project_id
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Get your Project ID at [cloud.reown.com](https://cloud.reown.com)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Supported Tokens
+
+- ETH (Native)
+- WETH
+- USDC
+- USDT
+- DAI
+- LINK
+- UNI
+
+## Key Implementation Details
+
+### Quote Fetching
+Uses `quoteExactInputSingle` from QuoterV2 to simulate swaps and get accurate output amounts including price impact.
+
+### Fee Tier Logic
+- Stable/Stable pairs → 0.01% fee
+- ETH/Stable pairs → 0.05% fee  
+- All other pairs → 0.3% fee
+
+### Approval Flow
+1. Check current allowance via `allowance()`
+2. If insufficient, request `approve()` with max uint256
+3. Wait for confirmation before swap
+
+## License
+
+MIT

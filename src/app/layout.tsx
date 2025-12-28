@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
 import { Space_Grotesk, JetBrains_Mono } from "next/font/google";
+import { Toaster } from "sonner";
 import "./globals.css";
 import { AppKitProvider } from "@/providers/AppkitProvider";
-import { AppStateProvider } from "@/providers/AppStateProvider";
-import { Header } from "@/components/Header";
-import Footer from "@/components/Footer";
+import { Header, Footer } from "@/components/layout";
 
 const spaceGrotesk = Space_Grotesk({
   variable: "--font-geist-sans",
@@ -37,11 +36,19 @@ export default function RootLayout({
         className={`${spaceGrotesk.variable} ${jetbrainsMono.variable} font-sans antialiased`}
       >
         <AppKitProvider>
-          <AppStateProvider>
-            <Header />
-            {children}
-            <Footer />
-          </AppStateProvider>
+          <Header />
+          {children}
+          <Footer />
+          <Toaster
+            theme="dark"
+            position="top-right"
+            toastOptions={{
+              classNames: {
+                success: "!bg-emerald-950 !border-emerald-800 !text-emerald-100",
+                error: "!bg-red-950 !border-red-800 !text-red-100",
+              },
+            }}
+          />
         </AppKitProvider>
       </body>
     </html>
