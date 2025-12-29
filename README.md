@@ -2,8 +2,6 @@
 
 A modern DEX aggregator interface built with Next.js 15, integrating directly with Uniswap V3 smart contracts on Ethereum mainnet.
 
-![SwapX Preview](https://via.placeholder.com/800x450?text=SwapX+Preview)
-
 ## Features
 
 - **Direct Uniswap V3 Integration** — Swaps execute directly on-chain via SwapRouter02
