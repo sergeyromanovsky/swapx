@@ -21,6 +21,8 @@ export type PriceData = Record<string, TokenPrice>;
 export interface QuoteResult {
   amountOut: string;
   amountOutRaw: bigint;
+  amountIn: string;
+  amountInRaw: bigint;
 }
 
 export interface SwapParams {

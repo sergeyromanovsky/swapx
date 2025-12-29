@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import confetti from "canvas-confetti";
 import { useSwapStore } from "../model/store";
 import { executeSwap } from "../api/executeSwap";
+import { useQuote } from "./useQuote";
 
 function fireConfetti() {
   const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 9999 };
@@ -28,11 +29,15 @@ export function useSwapMutation() {
   const { address } = useConnection();
   const publicClient = usePublicClient();
   const { data: walletClient } = useWalletClient();
+  const { data: quote } = useQuote();
 
-  const { fromToken, toToken, fromAmount, slippage, reset } = useSwapStore();
+  const { fromToken, toToken, fromAmount, toAmount, inputMode, slippage, reset } = useSwapStore();
+
+  // Use the actual calculated amount from quote when in exactOutput mode
+  const effectiveFromAmount = inputMode === "from" ? fromAmount : (quote?.amountIn ?? fromAmount);
 
   return useMutation({
-    mutationKey: ["swap", fromToken?.id, toToken?.id, fromAmount],
+    mutationKey: ["swap", fromToken?.id, toToken?.id, effectiveFromAmount],
     mutationFn: async () => {
       if (
         !publicClient ||
@@ -47,7 +52,7 @@ export function useSwapMutation() {
       const result = await executeSwap({
         fromToken,
         toToken,
-        amount: fromAmount,
+        amount: effectiveFromAmount,
         slippage,
         address,
         publicClient,
@@ -63,8 +68,11 @@ export function useSwapMutation() {
     onSuccess: (data) => {
       fireConfetti();
 
+      const displayFromAmount = inputMode === "from" ? fromAmount : (quote?.amountIn ?? fromAmount);
+      const displayToAmount = inputMode === "to" ? toAmount : (quote?.amountOut ?? toAmount);
+
       toast.success("Swap successful!", {
-        description: `Swapped ${fromAmount} ${fromToken?.symbol} for ${toToken?.symbol}`,
+        description: `Swapped ${displayFromAmount} ${fromToken?.symbol} for ${displayToAmount} ${toToken?.symbol}`,
         action: data.txHash
           ? {
               label: "View TX",

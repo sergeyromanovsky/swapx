@@ -40,10 +40,13 @@ export function SwapForm() {
     fromToken,
     toToken,
     fromAmount,
+    toAmount,
+    inputMode,
     slippage,
     setFromToken,
     setToToken,
     setFromAmount,
+    setToAmount,
     flipTokens,
   } = useSwapStore();
 
@@ -60,11 +63,16 @@ export function SwapForm() {
   const swapMutation = useSwapMutation();
   const approvalMutation = useApprovalMutation();
 
-  const toAmount = quote?.amountOut ?? "";
+  // Compute displayed amounts based on inputMode
+  const displayFromAmount = inputMode === "from" ? fromAmount : (quote?.amountIn ?? fromAmount);
+  const displayToAmount = inputMode === "to" ? toAmount : (quote?.amountOut ?? toAmount);
+  
   const hasTokens = !!fromToken && !!toToken;
-  const hasAmount = !!fromAmount && parseFloat(fromAmount) > 0;
+  const activeAmount = inputMode === "from" ? fromAmount : toAmount;
+  const hasAmount = !!activeAmount && parseFloat(activeAmount) > 0;
+  const effectiveFromAmount = inputMode === "from" ? fromAmount : (quote?.amountIn ?? "0");
   const hasSufficientBalance =
-    fromBalance !== undefined && parseFloat(fromAmount || "0") <= fromBalance;
+    fromBalance !== undefined && parseFloat(effectiveFromAmount || "0") <= fromBalance;
   const isLoading =
     swapMutation.isPending || approvalMutation.isPending || quoteLoading;
 
@@ -109,12 +117,13 @@ export function SwapForm() {
         <div className="rounded-2xl bg-card p-4">
           <TokenInput
             label="You pay"
-            amount={fromAmount}
+            amount={displayFromAmount}
             token={fromToken}
             disabledToken={toToken}
             balance={fromBalance}
-            usdValue={calcUsdValue(fromAmount, prices, fromToken)}
+            usdValue={calcUsdValue(displayFromAmount, prices, fromToken)}
             prices={prices}
+            isLoading={inputMode === "to" && quoteLoading && hasAmount}
             onAmountChange={setFromAmount}
             onTokenSelect={setFromToken}
           />
@@ -124,24 +133,24 @@ export function SwapForm() {
           <div className="mt-1">
             <TokenInput
               label="You receive"
-              amount={toAmount}
+              amount={displayToAmount}
               token={toToken}
               disabledToken={fromToken}
               balance={toBalance}
-              usdValue={calcUsdValue(toAmount, prices, toToken)}
+              usdValue={calcUsdValue(displayToAmount, prices, toToken)}
               prices={prices}
-              readOnly
-              isLoading={quoteLoading && hasAmount}
+              isLoading={inputMode === "from" && quoteLoading && hasAmount}
+              onAmountChange={setToAmount}
               onTokenSelect={setToToken}
             />
           </div>
 
-          {fromToken && toToken && prices && toAmount && (
+          {fromToken && toToken && prices && displayToAmount && displayFromAmount && (
             <SwapDetails
               fromToken={fromToken}
               toToken={toToken}
-              fromAmount={fromAmount}
-              toAmount={toAmount}
+              fromAmount={displayFromAmount}
+              toAmount={displayToAmount}
               prices={prices}
               slippage={slippage}
             />

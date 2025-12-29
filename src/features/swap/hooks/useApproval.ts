@@ -5,6 +5,7 @@ import { usePublicClient, useWalletClient, useConnection } from "wagmi";
 import { toast } from "sonner";
 import { useSwapStore } from "../model/store";
 import { checkAllowance, approveToken, UNISWAP_V3 } from "../api";
+import { useQuote } from "./useQuote";
 
 /**
  * Hook to check if approval is needed for the current swap
@@ -12,22 +13,26 @@ import { checkAllowance, approveToken, UNISWAP_V3 } from "../api";
 export function useNeedsApproval() {
   const { address } = useConnection();
   const publicClient = usePublicClient();
-  const { fromToken, fromAmount } = useSwapStore();
+  const { fromToken, fromAmount, inputMode } = useSwapStore();
+  const { data: quote } = useQuote();
+
+  // Use the actual calculated amount from quote when in exactOutput mode
+  const effectiveFromAmount = inputMode === "from" ? fromAmount : (quote?.amountIn ?? fromAmount);
 
   const enabled =
     !!publicClient &&
     !!address &&
     !!fromToken &&
     fromToken.address !== null && // Native ETH doesn't need approval
-    !!fromAmount &&
-    parseFloat(fromAmount) > 0;
+    !!effectiveFromAmount &&
+    parseFloat(effectiveFromAmount) > 0;
 
   return useQuery({
-    queryKey: ["allowance", fromToken?.id, fromAmount, address],
+    queryKey: ["allowance", fromToken?.id, effectiveFromAmount, address],
     queryFn: async () => {
       const hasSufficientAllowance = await checkAllowance({
         token: fromToken!,
-        amount: fromAmount,
+        amount: effectiveFromAmount,
         ownerAddress: address!,
         spenderAddress: UNISWAP_V3.SWAP_ROUTER_02,
         publicClient: publicClient!,
@@ -47,7 +52,11 @@ export function useApprovalMutation() {
   const { address } = useConnection();
   const publicClient = usePublicClient();
   const { data: walletClient } = useWalletClient();
-  const { fromToken, fromAmount } = useSwapStore();
+  const { fromToken, fromAmount, inputMode } = useSwapStore();
+  const { data: quote } = useQuote();
+
+  // Use the actual calculated amount from quote when in exactOutput mode
+  const effectiveFromAmount = inputMode === "from" ? fromAmount : (quote?.amountIn ?? fromAmount);
 
   return useMutation({
     mutationKey: ["approve", fromToken?.id],
@@ -75,7 +84,7 @@ export function useApprovalMutation() {
       });
 
       queryClient.invalidateQueries({
-        queryKey: ["allowance", fromToken?.id, fromAmount, address],
+        queryKey: ["allowance", fromToken?.id, effectiveFromAmount, address],
       });
     },
     onError: (error) => {

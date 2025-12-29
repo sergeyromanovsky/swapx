@@ -1,7 +1,6 @@
 "use client";
 
 import { Loader2 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import type { Token, PriceData } from "../model/types";
 import { TokenSelector } from "./TokenSelector";
 
@@ -29,28 +28,6 @@ function AmountInput({ value, onChange }: AmountInputProps) {
   );
 }
 
-interface OutputDisplayProps {
-  value: string;
-  isLoading?: boolean;
-}
-
-function OutputDisplay({ value, isLoading }: OutputDisplayProps) {
-  if (isLoading) {
-    return (
-      <div className="flex items-center gap-2">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-        <span className="text-xl text-muted-foreground">Loading...</span>
-      </div>
-    );
-  }
-
-  return (
-    <span className={cn("text-3xl font-medium", !value && "text-muted-foreground/50")}>
-      {value || "0"}
-    </span>
-  );
-}
-
 interface TokenInputProps {
   label: string;
   amount: string;
@@ -59,7 +36,6 @@ interface TokenInputProps {
   balance?: number;
   usdValue?: string;
   prices?: PriceData;
-  readOnly?: boolean;
   isLoading?: boolean;
   onAmountChange?: (value: string) => void;
   onTokenSelect: (token: Token) => void;
@@ -73,7 +49,6 @@ export function TokenInput({
   balance,
   usdValue,
   prices,
-  readOnly,
   isLoading,
   onAmountChange,
   onTokenSelect,
@@ -90,18 +65,17 @@ export function TokenInput({
       </div>
 
       <div className="flex items-center gap-3">
-        {readOnly ? (
-          <div className="flex-1">
-            <OutputDisplay value={amount} isLoading={isLoading} />
-          </div>
-        ) : (
-          <AmountInput value={amount} onChange={onAmountChange!} />
-        )}
+        <div className="flex flex-1 items-center gap-2">
+          {isLoading ? (
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          ) : null}
+          <AmountInput value={amount} onChange={onAmountChange ?? (() => {})} />
+        </div>
         <TokenSelector
           selectedToken={token}
           disabledToken={disabledToken}
           prices={prices}
-          label={readOnly ? "Select token to receive" : "Select token to pay"}
+          label={label === "You receive" ? "Select token to receive" : "Select token to pay"}
           onSelect={onTokenSelect}
         />
       </div>

@@ -88,7 +88,7 @@ pnpm test:coverage
 ## Environment Variables
 
 ```env
-NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_project_id
+NEXT_PUBLIC_APPKIT_PROJECT_ID=your_project_id
 ```
 
 Get your Project ID at [cloud.reown.com](https://cloud.reown.com)
@@ -96,10 +96,8 @@ Get your Project ID at [cloud.reown.com](https://cloud.reown.com)
 ## Supported Tokens
 
 - ETH (Native)
-- WETH
 - USDC
 - USDT
-- DAI
 - LINK
 - UNI
 

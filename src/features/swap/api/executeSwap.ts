@@ -35,7 +35,7 @@ export async function executeSwap({
 }: ExecuteSwapParams): Promise<SwapResult> {
   let quote;
   try {
-    quote = await getQuote({ fromToken, toToken, amount, publicClient });
+    quote = await getQuote({ fromToken, toToken, amount, inputMode: "from", publicClient });
   } catch {
     return { success: false, error: "Failed to get quote" };
   }

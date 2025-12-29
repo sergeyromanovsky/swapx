@@ -2,10 +2,14 @@ import { create } from "zustand";
 import { getTokenById } from "./tokens";
 import type { Token } from "./types";
 
+export type InputMode = "from" | "to";
+
 interface SwapState {
   fromToken: Token | null;
   toToken: Token | null;
   fromAmount: string;
+  toAmount: string;
+  inputMode: InputMode;
   slippage: number;
 }
 
@@ -13,6 +17,7 @@ interface SwapActions {
   setFromToken: (token: Token | null) => void;
   setToToken: (token: Token | null) => void;
   setFromAmount: (amount: string) => void;
+  setToAmount: (amount: string) => void;
   setSlippage: (slippage: number) => void;
   flipTokens: () => void;
   reset: () => void;
@@ -24,6 +29,8 @@ const DEFAULT_STATE: SwapState = {
   fromToken: getTokenById("eth") ?? null,
   toToken: getTokenById("usdc") ?? null,
   fromAmount: "",
+  toAmount: "",
+  inputMode: "from",
   slippage: 0.5,
 };
 
@@ -48,7 +55,13 @@ export const useSwapStore = create<SwapStore>((set) => ({
 
   setFromAmount: (amount) => {
     if (amount === "" || /^\d*\.?\d*$/.test(amount)) {
-      set({ fromAmount: amount });
+      set({ fromAmount: amount, inputMode: "from" });
+    }
+  },
+
+  setToAmount: (amount) => {
+    if (amount === "" || /^\d*\.?\d*$/.test(amount)) {
+      set({ toAmount: amount, inputMode: "to" });
     }
   },
 
@@ -58,8 +71,10 @@ export const useSwapStore = create<SwapStore>((set) => ({
     set((state) => ({
       fromToken: state.toToken,
       toToken: state.fromToken,
-      fromAmount: "",
+      fromAmount: state.toAmount,
+      toAmount: state.fromAmount,
+      inputMode: state.inputMode === "from" ? "to" : "from",
     })),
 
-  reset: () => set({ fromAmount: "" }),
+  reset: () => set({ fromAmount: "", toAmount: "", inputMode: "from" }),
 }));

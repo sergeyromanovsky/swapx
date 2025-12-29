@@ -7,18 +7,20 @@ import { getQuote } from "../api/getQuote";
 
 export function useQuote() {
   const publicClient = usePublicClient();
-  const { fromToken, toToken, fromAmount } = useSwapStore();
+  const { fromToken, toToken, fromAmount, toAmount, inputMode } = useSwapStore();
 
+  const amount = inputMode === "from" ? fromAmount : toAmount;
   const enabled =
-    !!publicClient && !!fromToken && !!toToken && !!fromAmount && parseFloat(fromAmount) > 0;
+    !!publicClient && !!fromToken && !!toToken && !!amount && parseFloat(amount) > 0;
 
   return useQuery({
-    queryKey: ["quote", fromToken?.id, toToken?.id, fromAmount],
+    queryKey: ["quote", fromToken?.id, toToken?.id, amount, inputMode],
     queryFn: () =>
       getQuote({
         fromToken: fromToken!,
         toToken: toToken!,
-        amount: fromAmount,
+        amount,
+        inputMode,
         publicClient: publicClient!,
       }),
     enabled,
