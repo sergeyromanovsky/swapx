@@ -1,6 +1,6 @@
 # SwapX — Decentralized Token Swap
 
-A modern DEX aggregator interface built with Next.js 15, integrating directly with Uniswap V3 smart contracts on Ethereum mainnet.
+A modern Uniswap V3 swap interface built with Next.js 16, integrating directly with Uniswap smart contracts on Ethereum mainnet.
 
 ## Features
 
@@ -15,7 +15,7 @@ A modern DEX aggregator interface built with Next.js 15, integrating directly wi
 
 | Category | Technology |
 |----------|------------|
-| Framework | Next.js 15 (App Router) |
+| Framework | Next.js 16 (App Router) |
 | Blockchain | viem, wagmi v2 |
 | Wallet | Reown AppKit (WalletConnect v2) |
 | State | Zustand, TanStack Query |
